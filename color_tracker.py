@@ -1,10 +1,18 @@
 import cv2
 import numpy as np
 import argparse
+import datetime
+import csv
+import os
+import _thread
+from functools import partial
 
 color_tracker_window = "Video Capture"
 filtered_window = "Filtered Image"
+foreground_window = "Background Substitution"
+subtracted_window = "Background Substitution Applied"
 track_bar = "track_bar"
+
 def doNothing(x):
     pass
     
@@ -23,6 +31,11 @@ def resizeWithAspectRatio(image, width=None, height=None, inter=cv2.INTER_AREA):
 
     return cv2.resize(image, dim, interpolation=inter)
 
+def getFrame(frame_no, video):
+    video.set(cv2.CAP_PROP_POS_FRAMES, frame_no)
+def setSpeed(val, speed):
+    speed = max(val, 1)
+
 #########
 ## Constant Values
 #########
@@ -39,9 +52,11 @@ class ColorTracker:
     def __init__(self, args):
         #cv2.namedWindow(color_tracker_window, cv2.WINDOW_NORMAL)
         cv2.namedWindow(track_bar, cv2.WINDOW_NORMAL)
+        
 
         self.window_width = None
         self.window_height = 900
+        
         cv2.createTrackbar('min_h', track_bar, 0, high_H, doNothing)
         cv2.createTrackbar('min_s', track_bar, 0, high_S, doNothing)
         cv2.createTrackbar('min_v', track_bar, 0, high_V, doNothing)
@@ -58,6 +73,15 @@ class ColorTracker:
         else:
             raise Exception("Neither camera nor video is provided as input.")
 
+        self.ret, self.frame = self.capture.read()
+        self.frame = resizeWithAspectRatio(self.frame, height=self.window_height)
+        cv2.imshow(color_tracker_window, self.frame)
+        self.no_frames = int(self.capture.get(cv2.CAP_PROP_FRAME_COUNT))
+        self.play_speed = 50
+
+        cv2.createTrackbar('Frame', color_tracker_window, 0, self.no_frames, partial(getFrame,video = self.capture))
+        #cv2.createTrackbar('Speed', color_tracker_window, self.play_speed, 100, partial(setSpeed, speed=self.play_speed))
+
         self.min_h = low_H
         self.min_s = low_S
         self.min_v = low_V
@@ -66,6 +90,19 @@ class ColorTracker:
         self.max_s = high_S
         self.max_v = high_V
 
+        # Background Subtraction Algorithm
+        self.back_sub = cv2.createBackgroundSubtractorKNN()
+
+        # HSV range file generation
+        self.hsv_range_file_name = "hsv_range.csv"
+        self.hsv_range_file_header = ['time', 'min_h', 'min_s', 'min_v', 'max_h', 'max_s', 'max_v', 'comments']
+        if self.hsv_range_file_name not in os.listdir():
+            with open(self.hsv_range_file_name, 'w') as f:
+                writer = csv.writer(f)
+                writer.writerow(self.hsv_range_file_header)
+
+
+
     def run(self):
         while True:#
         # Image Collection & Processing
@@ -73,6 +110,9 @@ class ColorTracker:
             ret, frame = self.capture.read()
             #frame = cv2.GaussianBlur(frame,(11,11), cv2.BORDER_DEFAULT)
             if ret:
+                
+                fg_frame = self.back_sub.apply(frame)
+                
                 hsv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
                 # Read from Track bar
@@ -86,19 +126,29 @@ class ColorTracker:
                 frame = resizeWithAspectRatio(frame, height=self.window_height)
                 cv2.imshow(color_tracker_window, frame)
 
+                # Set the frame number from video
+                cv2.setTrackbarPos("Frame", color_tracker_window, int(self.capture.get(cv2.CAP_PROP_POS_FRAMES)))
+
+                fg_frame_viz = resizeWithAspectRatio(fg_frame, height=self.window_height)
+                cv2.imshow(foreground_window, fg_frame_viz)
                 min_values = np.array([self.min_h, self.min_s, self.min_v], dtype = "uint8")
                 max_values = np.array([self.max_h, self.max_s, self.max_v], dtype = "uint8")
 
                 masked_frame = cv2.inRange(hsv_frame, min_values, max_values)
                 filtered_hsv_frame = cv2.bitwise_and(hsv_frame, hsv_frame, mask = masked_frame)
                 filtered_rgb_frame = cv2.cvtColor(filtered_hsv_frame, cv2.COLOR_HSV2BGR)
-                filtered_rgb_frame = resizeWithAspectRatio(filtered_rgb_frame, height = self.window_height)
+                subtracted_rgb_frame = cv2.bitwise_and(filtered_rgb_frame, filtered_rgb_frame, mask = fg_frame)
                 
-                cv2.imshow(filtered_window, filtered_rgb_frame)
+                #filtered_rgb_frame = resizeWithAspectRatio(filtered_rgb_frame, height = self.window_height)
+                #cv2.imshow(filtered_windowiter the comment for this hsv range: ")
+                    hsv_range_data = [f'{datetime.datetime.utcnow()}', f'{self.min_h}', f'{self.min_s}', f'{self.min_v}',
+                                      f'{self.max_h}', f'{self.max_s}', f'{self.max_v}', f'{hsv_comment}']
+                    with open(self.hsv_range_file_name, 'a') as f:
+                        writer = csv.writer(f)
+                        writer.writerow(hsv_range_data)
 
-                if cv2.waitKey(1) & 0xFF == ord('q'):
-                    break
-                # if cv2.waitKey(1) & 0xFF == ord('p'):
+
+                # elif cv2.waitKey(1) & 0xFF == ord('p'):
                 #     print(f"Hue: {self.h}, Saturation: {self.s}, Value: {self.v}")
 
         self.capture.release()
