@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import argparse
 import datetime
+import time
 import csv
 import os
 import _thread
@@ -52,7 +53,7 @@ class ColorTracker:
     def __init__(self, args):
         #cv2.namedWindow(color_tracker_window, cv2.WINDOW_NORMAL)
         cv2.namedWindow(track_bar, cv2.WINDOW_NORMAL)
-        
+    
 
         self.window_width = None
         self.window_height = 900
@@ -91,7 +92,7 @@ class ColorTracker:
         self.max_v = high_V
 
         # Background Subtraction Algorithm
-        self.back_sub = cv2.createBackgroundSubtractorKNN()
+        self.back_sub = cv2.createBackgroundSubtractorMOG2()
 
         # HSV range file generation
         self.hsv_range_file_name = "hsv_range.csv"
@@ -100,6 +101,11 @@ class ColorTracker:
             with open(self.hsv_range_file_name, 'w') as f:
                 writer = csv.writer(f)
                 writer.writerow(self.hsv_range_file_header)
+
+        # FPS counter
+        self.cur_time = 0
+        self.prev_time = 0
+        self.font = cv2.FONT_HERSHEY_SIMPLEX
 
 
 
@@ -110,11 +116,14 @@ class ColorTracker:
             ret, frame = self.capture.read()
             #frame = cv2.GaussianBlur(frame,(11,11), cv2.BORDER_DEFAULT)
             if ret:
-                
-                fg_frame = self.back_sub.apply(frame)
-                
-                hsv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
+                # Calculation FPS
+                self.cur_time = time.time()
+                t_d = self.cur_time - self.prev_time
+                fps = 1/t_d
+                self.prev_time = self.cur_time
+                fps = str(int(fps))
+                fps = f'FPS: {fps}, time: {t_d:.2f}'
                 # Read from Track bar
                 self.min_h = cv2.getTrackbarPos('min_h', track_bar)
                 self.min_s = cv2.getTrackbarPos('min_s', track_bar)
@@ -123,14 +132,20 @@ class ColorTracker:
                 self.max_s = cv2.getTrackbarPos('max_s', track_bar)
                 self.max_v = cv2.getTrackbarPos('max_v', track_bar)
                 
+                fg_frame = self.back_sub.apply(frame)
+                hsv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
                 frame = resizeWithAspectRatio(frame, height=self.window_height)
+                #cv2.putText(frame, fps,(7, 70), self.font, 3, (100, 255, 0), 3, cv2.LINE_AA)
+
                 cv2.imshow(color_tracker_window, frame)
 
                 # Set the frame number from video
-                cv2.setTrackbarPos("Frame", color_tracker_window, int(self.capture.get(cv2.CAP_PROP_POS_FRAMES)))
+                #cv2.setTrackbarPos("Frame", color_tracker_window, int(self.capture.get(cv2.CAP_PROP_POS_FRAMES)))
 
+                
                 fg_frame_viz = resizeWithAspectRatio(fg_frame, height=self.window_height)
-                cv2.imshow(foreground_window, fg_frame_viz)
+                #cv2.imshow(foreground_window, fg_frame_viz)
                 min_values = np.array([self.min_h, self.min_s, self.min_v], dtype = "uint8")
                 max_values = np.array([self.max_h, self.max_s, self.max_v], dtype = "uint8")
 
@@ -139,8 +154,20 @@ class ColorTracker:
                 filtered_rgb_frame = cv2.cvtColor(filtered_hsv_frame, cv2.COLOR_HSV2BGR)
                 subtracted_rgb_frame = cv2.bitwise_and(filtered_rgb_frame, filtered_rgb_frame, mask = fg_frame)
                 
-                #filtered_rgb_frame = resizeWithAspectRatio(filtered_rgb_frame, height = self.window_height)
-                #cv2.imshow(filtered_windowiter the comment for this hsv range: ")
+                #cv2.putText(filtered_rgb_frame, fps,(7, 70), self.font, 3, (100, 255, 0), 3, cv2.LINE_AA)
+                filtered_rgb_frame = resizeWithAspectRatio(filtered_rgb_frame, height = self.window_height)
+                #cv2.imshow(filtered_window, filtered_rgb_frame)
+                
+                subtracted_rgb_frame = resizeWithAspectRatio(subtracted_rgb_frame, height = self.window_height)
+                cv2.putText(subtracted_rgb_frame, fps,(7, 70), self.font, 3, (100, 255, 0), 3, cv2.LINE_AA)
+                cv2.imshow(subtracted_window, subtracted_rgb_frame)
+
+
+                # Keyboard inputs
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    break
+                elif cv2.waitKey(1) & 0xFF == ord('s'):
+                    hsv_comment = input("Enter the comment for this hsv range: ")
                     hsv_range_data = [f'{datetime.datetime.utcnow()}', f'{self.min_h}', f'{self.min_s}', f'{self.min_v}',
                                       f'{self.max_h}', f'{self.max_s}', f'{self.max_v}', f'{hsv_comment}']
                     with open(self.hsv_range_file_name, 'a') as f:
