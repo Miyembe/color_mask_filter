@@ -107,6 +107,29 @@ class ColorTracker:
         self.prev_time = 0
         self.font = cv2.FONT_HERSHEY_SIMPLEX
 
+        # Segmentation related
+        self.top_left_corner = None
+        self.bottom_right_corner = None
+        self.mouse_flag = 0
+
+        
+    def saveRectangle(self, action, x, y, flags, *userdata):
+        print("Instance called")
+        if action == cv2.EVENT_LBUTTONDOWN:
+            print("Top Left coordinate is saved.")
+            self.top_left_corner = [(x,y)]
+        elif action == cv2.EVENT_LBUTTONUP:
+            self.bottom_right_corner = [(x,y)]
+            print(f"Top Left and Bottom Right Coordinates are now set !!! - Top Left: ({self.top_left_corner[0][0]}, {self.top_left_corner[0][1]}), Bottom Right: ({self.bottom_right_corner[0][0]}, {self.bottom_right_corner[0][1]})")
+
+
+    def drawRectangle(self, window, frame):
+        if self.top_left_corner != None and self.bottom_right_corner != None:
+            cv2.rectangle(frame, self.top_left_corner[0], self.bottom_right_corner[0], (0, 255, 0), 2, 8)
+            cv2.imshow(window, frame)
+        else: pass
+        
+
 
 
     def run(self):
@@ -139,28 +162,31 @@ class ColorTracker:
                 #cv2.putText(frame, fps,(7, 70), self.font, 3, (100, 255, 0), 3, cv2.LINE_AA)
 
                 cv2.imshow(color_tracker_window, frame)
+                if self.mouse_flag == 1:
+                    cv2.setMouseCallback(color_tracker_window, self.saveRectangle)
+                self.drawRectangle(color_tracker_window, frame)
 
                 # Set the frame number from video
                 #cv2.setTrackbarPos("Frame", color_tracker_window, int(self.capture.get(cv2.CAP_PROP_POS_FRAMES)))
 
                 
-                fg_frame_viz = resizeWithAspectRatio(fg_frame, height=self.window_height)
+                #fg_frame_viz = resizeWithAspectRatio(fg_frame, height=self.window_height)
                 #cv2.imshow(foreground_window, fg_frame_viz)
-                min_values = np.array([self.min_h, self.min_s, self.min_v], dtype = "uint8")
-                max_values = np.array([self.max_h, self.max_s, self.max_v], dtype = "uint8")
+                #min_values = np.array([self.min_h, self.min_s, self.min_v], dtype = "uint8")
+                #max_values = np.array([self.max_h, self.max_s, self.max_v], dtype = "uint8")
 
-                masked_frame = cv2.inRange(hsv_frame, min_values, max_values)
-                filtered_hsv_frame = cv2.bitwise_and(hsv_frame, hsv_frame, mask = masked_frame)
-                filtered_rgb_frame = cv2.cvtColor(filtered_hsv_frame, cv2.COLOR_HSV2BGR)
-                subtracted_rgb_frame = cv2.bitwise_and(filtered_rgb_frame, filtered_rgb_frame, mask = fg_frame)
+                #masked_frame = cv2.inRange(hsv_frame, min_values, max_values)
+                #filtered_hsv_frame = cv2.bitwise_and(hsv_frame, hsv_frame, mask = masked_frame)
+                #filtered_rgb_frame = cv2.cvtColor(filtered_hsv_frame, cv2.COLOR_HSV2BGR)
+                #subtracted_rgb_frame = cv2.bitwise_and(filtered_rgb_frame, filtered_rgb_frame, mask = fg_frame)
                 
                 #cv2.putText(filtered_rgb_frame, fps,(7, 70), self.font, 3, (100, 255, 0), 3, cv2.LINE_AA)
-                filtered_rgb_frame = resizeWithAspectRatio(filtered_rgb_frame, height = self.window_height)
+                #filtered_rgb_frame = resizeWithAspectRatio(filtered_rgb_frame, height = self.window_height)
                 #cv2.imshow(filtered_window, filtered_rgb_frame)
                 
-                subtracted_rgb_frame = resizeWithAspectRatio(subtracted_rgb_frame, height = self.window_height)
-                cv2.putText(subtracted_rgb_frame, fps,(7, 70), self.font, 3, (100, 255, 0), 3, cv2.LINE_AA)
-                cv2.imshow(subtracted_window, subtracted_rgb_frame)
+                #subtracted_rgb_frame = resizeWithAspectRatio(subtracted_rgb_frame, height = self.window_height)
+                #cv2.putText(subtracted_rgb_frame, fps,(7, 70), self.font, 3, (100, 255, 0), 3, cv2.LINE_AA)
+                #cv2.imshow(subtracted_window, subtracted_rgb_frame)
 
 
                 # Keyboard inputs
@@ -173,6 +199,16 @@ class ColorTracker:
                     with open(self.hsv_range_file_name, 'a') as f:
                         writer = csv.writer(f)
                         writer.writerow(hsv_range_data)
+                elif cv2.waitKey(1) & 0xFF == ord('h'): # Hole segmentation
+                    if self.mouse_flag == 0:
+                        print("Mouse based segmentation is activated")
+                        self.mouse_flag = 1
+                    else:
+                        print("Mouse based segmentation is deactivated")
+                        self.mouse_flag = 0
+
+                    
+
 
 
                 # elif cv2.waitKey(1) & 0xFF == ord('p'):
