@@ -111,16 +111,22 @@ class ColorTracker:
         self.top_left_corner = None
         self.bottom_right_corner = None
         self.mouse_flag = 0
+        self.num_holes = int(args.num_holes)
+        self.list_holes = [[0,0] for i in range(self.num_holes)]
+        self.list_index = 0
+        self.isHoleReady = False
 
         
     def saveRectangle(self, action, x, y, flags, *userdata):
-        print("Instance called")
+        #print("Instance called")
+        #print("Hello")
         if action == cv2.EVENT_LBUTTONDOWN:
             print("Top Left coordinate is saved.")
-            self.top_left_corner = [(x,y)]
+            self.list_holes[self.list_index][0] = [(x,y)]
         elif action == cv2.EVENT_LBUTTONUP:
-            self.bottom_right_corner = [(x,y)]
-            print(f"Top Left and Bottom Right Coordinates are now set !!! - Top Left: ({self.top_left_corner[0][0]}, {self.top_left_corner[0][1]}), Bottom Right: ({self.bottom_right_corner[0][0]}, {self.bottom_right_corner[0][1]})")
+            self.list_holes[self.list_index][1] = [(x,y)]
+            self.list_index += 1
+            print(f"Top Left and Bottom Right Coordinates are now set !!!")
 
 
     def drawRectangle(self, window, frame):
@@ -128,6 +134,27 @@ class ColorTracker:
             cv2.rectangle(frame, self.top_left_corner[0], self.bottom_right_corner[0], (0, 255, 0), 2, 8)
             cv2.imshow(window, frame)
         else: pass
+
+    def drawAllRectangle(self, window, frame, coordinates):
+        for i, coordinate in enumerate(coordinates):
+            cv2.rectangle(frame, coordinate[0][0], coordinate[1][0], (0, 255, 0), 2, 8)
+            cv2.imshow(window, frame)
+
+
+    def chooseHoles(self, window, frame, num_holes = 0):
+        # Need to generate empty list with the len of num_holes
+        self.isHoleReady = False
+        if self.mouse_flag == 1:
+            if self.list_index < self.num_holes:
+                cv2.setMouseCallback(window, self.saveRectangle) 
+                #print(f"self.list_index: {self.list_index}")
+                #print(f"self.mouse_flag: {self.mouse_flag}")
+            else:
+                self.list_index = 0
+                self.mouse_flag = 0
+                cv2.setMouseCallback(window, lambda x, y, flags, *userdata: None) # Disable MouseCallback function
+                self.isHoleReady = True
+                print("Hole Segmentation is done")
         
 
 
@@ -163,8 +190,21 @@ class ColorTracker:
 
                 cv2.imshow(color_tracker_window, frame)
                 if self.mouse_flag == 1:
-                    cv2.setMouseCallback(color_tracker_window, self.saveRectangle)
-                self.drawRectangle(color_tracker_window, frame)
+                    self.chooseHoles(color_tracker_window, frame, num_holes = self.num_holes)
+                else: cv2.setMouseCallback(color_tracker_window, lambda x, y, flags, *userdata: None)
+
+                # if self.mouse_flag == 1:
+                #     if self.list_index < self.num_holes + 1:
+                #         cv2.setMouseCallback(color_tracker_window, self.saveRectangle) 
+                #         print(f"self.mouse_flag: {self.mouse_flag}")
+                #     else:
+                #         self.list_index = 0
+                #         self.moust_flag = 0
+                #         print("Hole Segmentation is done")
+                # else: cv2.setMouseCallback(color_tracker_window, lambda x, y, flags, *userdata: None) # Disable MouseCallback function
+                if self.isHoleReady == True:
+                    self.drawAllRectangle(color_tracker_window, frame, self.list_holes)
+                #self.drawRectangle(color_tracker_window, frame)
 
                 # Set the frame number from video
                 #cv2.setTrackbarPos("Frame", color_tracker_window, int(self.capture.get(cv2.CAP_PROP_POS_FRAMES)))
@@ -207,10 +247,6 @@ class ColorTracker:
                         print("Mouse based segmentation is deactivated")
                         self.mouse_flag = 0
 
-                    
-
-
-
                 # elif cv2.waitKey(1) & 0xFF == ord('p'):
                 #     print(f"Hue: {self.h}, Saturation: {self.s}, Value: {self.v}")
 
@@ -222,6 +258,7 @@ if __name__=="__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("input", help="Type of input source. Option: [camera, video]")
     parser.add_argument("--video_loc", help="Location of video only required when the input source is video.")
+    parser.add_argument("--num_holes", help="Specifing number of holes needed to be segmented")
     args = parser.parse_args()
 
     color_tracker = ColorTracker(args)
