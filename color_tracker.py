@@ -204,8 +204,20 @@ class ColorTracker:
                 # else: cv2.setMouseCallback(color_tracker_window, lambda x, y, flags, *userdata: None) # Disable MouseCallback function
                 if self.isHoleReady == True:
                     self.drawAllRectangle(color_tracker_window, frame, self.list_holes)
+                    segmented_frame = [[] for _ in range(self.num_holes)]
+                    print(f"segmentation coordinates: {self.list_holes}")
+                    print(f"segmentation test: {self.list_holes[0][0][0][0]}, {self.list_holes[0][1][0][0]} ")
+                    #print(f"frame: {frame}, size_frame: {np.array(frame).shape}")
+                    for i in range(self.num_holes):
+                        segmented_frame[i] = frame[self.list_holes[i][0][0][1]:self.list_holes[i][1][0][1], self.list_holes[i][0][0][0]:self.list_holes[i][1][0][0]]
+                        cv2.imshow(f"segmented_image_{i}", segmented_frame[i])
+                        print(f"x coordinates: {self.list_holes[i][0][0][0]}, {self.list_holes[i][1][0][0]}, y coordinates: {self.list_holes[i][0][0][1]}, {self.list_holes[i][1][0][1]} ")
                 #self.drawRectangle(color_tracker_window, frame)
-
+                
+                # Display selected segmented images
+                
+                    
+                    
                 # Set the frame number from video
                 #cv2.setTrackbarPos("Frame", color_tracker_window, int(self.capture.get(cv2.CAP_PROP_POS_FRAMES)))
 
