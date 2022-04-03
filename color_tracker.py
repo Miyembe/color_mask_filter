@@ -6,6 +6,7 @@ import time
 import csv
 import os
 import _thread
+import pandas as pd
 from functools import partial
 
 color_tracker_window = "Video Capture"
@@ -96,7 +97,7 @@ class ColorTracker:
 
         # HSV range file generation
         self.hsv_range_file_name = "hsv_range.csv"
-        self.hsv_range_file_header = ['time', 'min_h', 'min_s', 'min_v', 'max_h', 'max_s', 'max_v', 'comments']
+        self.hsv_range_file_header = ['time', 'min_h', 'min_s', 'min_v', 'max_h', 'max_s', 'max_v', 'colors']
         if self.hsv_range_file_name not in os.listdir():
             with open(self.hsv_range_file_name, 'w') as f:
                 writer = csv.writer(f)
@@ -111,11 +112,35 @@ class ColorTracker:
         self.top_left_corner = None
         self.bottom_right_corner = None
         self.mouse_flag = 0
-        self.num_holes = int(args.num_holes)
-        self.list_holes = [[0,0] for i in range(self.num_holes)]
+        if args.num_holes is not None:
+            self.num_holes = int(args.num_holes)
+            self.list_holes = [[0,0] for i in range(self.num_holes)]
+        else: self.num_holes = args.num_holes
         self.list_index = 0
         self.isHoleReady = False
+        self.justReady = False
 
+        # HSV value loading
+        if args.hsv_trackbar == 1:
+            self.is_hsv_trackbar = True
+        else:
+            self.is_hsv_trackbar = False
+            #self.hsv_ranges = [[0,0] for _ in range(self.num_colors)] 
+            #self.name_colors = [blue, red, green, yellow] #etc
+            hsv_range_csv = pd.read_csv('hsv_range.csv')
+            hsv_range_color = hsv_range_csv['colors']
+            self.list_colors = hsv_range_color.tolist()
+            self.num_colors = len(self.list_colors)
+            self.hsv_ranges = [[0,0] for _ in range(self.num_colors)] 
+            for i, color in enumerate(self.list_colors):
+                hsv_range_row = hsv_range_csv.loc[hsv_range_csv['colors']==color]
+                self.hsv_ranges[i][0] = [hsv_range_row['min_h'].values[0], hsv_range_row['min_s'].values[0], hsv_range_row['min_v'].values[0]]
+                self.hsv_ranges[i][1] = [hsv_range_row['max_h'].values[0], hsv_range_row['max_s'].values[0], hsv_range_row['max_v'].values[0]]
+            print(f"self.hsv_ranges: {self.hsv_ranges}")
+                
+
+            
+            
         
     def saveRectangle(self, action, x, y, flags, *userdata):
         #print("Instance called")
@@ -154,6 +179,7 @@ class ColorTracker:
                 self.mouse_flag = 0
                 cv2.setMouseCallback(window, lambda x, y, flags, *userdata: None) # Disable MouseCallback function
                 self.isHoleReady = True
+                self.justReady = True
                 print("Hole Segmentation is done")
         
 
@@ -162,7 +188,6 @@ class ColorTracker:
     def run(self):
         while True:#
         # Image Collection & Processing
-            
             ret, frame = self.capture.read()
             #frame = cv2.GaussianBlur(frame,(11,11), cv2.BORDER_DEFAULT)
             if ret:
@@ -182,72 +207,83 @@ class ColorTracker:
                 self.max_s = cv2.getTrackbarPos('max_s', track_bar)
                 self.max_v = cv2.getTrackbarPos('max_v', track_bar)
                 
-                fg_frame = self.back_sub.apply(frame)
-                hsv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-
-                frame = resizeWithAspectRatio(frame, height=self.window_height)
-                #cv2.putText(frame, fps,(7, 70), self.font, 3, (100, 255, 0), 3, cv2.LINE_AA)
-
-                cv2.imshow(color_tracker_window, frame)
+                
+                
+                frame_resized = resizeWithAspectRatio(frame, height=self.window_height)
+                cv2.imshow(color_tracker_window, frame_resized)
                 if self.mouse_flag == 1:
-                    self.chooseHoles(color_tracker_window, frame, num_holes = self.num_holes)
-                else: cv2.setMouseCallback(color_tracker_window, lambda x, y, flags, *userdata: None)
-
-                # if self.mouse_flag == 1:
-                #     if self.list_index < self.num_holes + 1:
-                #         cv2.setMouseCallback(color_tracker_window, self.saveRectangle) 
-                #         print(f"self.mouse_flag: {self.mouse_flag}")
-                #     else:
-                #         self.list_index = 0
-                #         self.moust_flag = 0
-                #         print("Hole Segmentation is done")
-                # else: cv2.setMouseCallback(color_tracker_window, lambda x, y, flags, *userdata: None) # Disable MouseCallback function
-                if self.isHoleReady == True:
+                    self.chooseHoles(color_tracker_window, frame, num_holes = self.num_holes) # Choose holes with desired number with mouse drag.
+                elif self.isHoleReady:
+                    cv2.setMouseCallback(color_tracker_window, lambda x, y, flags, *userdata: None) # Stop choosing holes and visualise all the chosen rectangles
                     self.drawAllRectangle(color_tracker_window, frame, self.list_holes)
                     segmented_frame = [[] for _ in range(self.num_holes)]
-                    print(f"segmentation coordinates: {self.list_holes}")
-                    print(f"segmentation test: {self.list_holes[0][0][0][0]}, {self.list_holes[0][1][0][0]} ")
-                    #print(f"frame: {frame}, size_frame: {np.array(frame).shape}")
+                    segmented_sub_frame = [[] for _ in range(self.num_holes)]
                     for i in range(self.num_holes):
                         segmented_frame[i] = frame[self.list_holes[i][0][0][1]:self.list_holes[i][1][0][1], self.list_holes[i][0][0][0]:self.list_holes[i][1][0][0]]
                         cv2.imshow(f"segmented_image_{i}", segmented_frame[i])
-                        print(f"x coordinates: {self.list_holes[i][0][0][0]}, {self.list_holes[i][1][0][0]}, y coordinates: {self.list_holes[i][0][0][1]}, {self.list_holes[i][1][0][1]} ")
-                #self.drawRectangle(color_tracker_window, frame)
-                
-                # Display selected segmented images
-                
-                    
-                    
+                #cv2.putText(frame, fps,(7, 70), self.font, 3, (100, 255, 0), 3, cv2.LINE_AA)
+
                 # Set the frame number from video
                 #cv2.setTrackbarPos("Frame", color_tracker_window, int(self.capture.get(cv2.CAP_PROP_POS_FRAMES)))
 
+                # HSV conversion and background substitution
                 
-                #fg_frame_viz = resizeWithAspectRatio(fg_frame, height=self.window_height)
                 #cv2.imshow(foreground_window, fg_frame_viz)
-                #min_values = np.array([self.min_h, self.min_s, self.min_v], dtype = "uint8")
-                #max_values = np.array([self.max_h, self.max_s, self.max_v], dtype = "uint8")
-
-                #masked_frame = cv2.inRange(hsv_frame, min_values, max_values)
-                #filtered_hsv_frame = cv2.bitwise_and(hsv_frame, hsv_frame, mask = masked_frame)
-                #filtered_rgb_frame = cv2.cvtColor(filtered_hsv_frame, cv2.COLOR_HSV2BGR)
-                #subtracted_rgb_frame = cv2.bitwise_and(filtered_rgb_frame, filtered_rgb_frame, mask = fg_frame)
+                
                 
                 #cv2.putText(filtered_rgb_frame, fps,(7, 70), self.font, 3, (100, 255, 0), 3, cv2.LINE_AA)
-                #filtered_rgb_frame = resizeWithAspectRatio(filtered_rgb_frame, height = self.window_height)
-                #cv2.imshow(filtered_window, filtered_rgb_frame)
                 
-                #subtracted_rgb_frame = resizeWithAspectRatio(subtracted_rgb_frame, height = self.window_height)
-                #cv2.putText(subtracted_rgb_frame, fps,(7, 70), self.font, 3, (100, 255, 0), 3, cv2.LINE_AA)
-                #cv2.imshow(subtracted_window, subtracted_rgb_frame)
+
+                if self.is_hsv_trackbar:
+                    hsv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+                    fg_frame = self.back_sub.apply(frame) 
+                    fg_frame_viz = resizeWithAspectRatio(fg_frame, height=self.window_height)
+                    min_values = np.array([self.min_h, self.min_s, self.min_v], dtype = "uint8")
+                    max_values = np.array([self.max_h, self.max_s, self.max_v], dtype = "uint8")
+                    masked_frame = cv2.inRange(hsv_frame, min_values, max_values)
+                    filtered_hsv_frame = cv2.bitwise_and(hsv_frame, hsv_frame, mask = masked_frame)
+                    filtered_rgb_frame = cv2.cvtColor(filtered_hsv_frame, cv2.COLOR_HSV2BGR)
+                    subtracted_rgb_frame = cv2.bitwise_and(filtered_rgb_frame, filtered_rgb_frame, mask = fg_frame)
+                    filtered_rgb_frame = resizeWithAspectRatio(filtered_rgb_frame, height = self.window_height)
+                    #cv2.imshow(filtered_window, filtered_rgb_frame)
+                    subtracted_rgb_frame = resizeWithAspectRatio(subtracted_rgb_frame, height = self.window_height)
+                    cv2.putText(subtracted_rgb_frame, fps,(7, 70), self.font, 3, (100, 255, 0), 3, cv2.LINE_AA)
+                    cv2.imshow(subtracted_window, subtracted_rgb_frame)
+                    if self.isHoleReady == True:
+                        for i in range(self.num_holes):
+                            segmented_sub_frame[i] = subtracted_rgb_frame[self.list_holes[i][0][0][1]:self.list_holes[i][1][0][1], self.list_holes[i][0][0][0]:self.list_holes[i][1][0][0]]
+                            cv2.imshow(f"segmented_filtered_image_{i}", segmented_sub_frame[i])
+                            #print(f"x coordinates: {self.list_holes[i][0][0][0]}, {self.list_holes[i][1][0][0]}, y coordinates: {self.list_holes[i][0][0][1]}, {self.list_holes[i][1][0][1]} ")
+
+                elif self.isHoleReady: 
+                    # mask segmented frames and apply directly to the segmented frame.
+                    if self.justReady:
+                        self.justReady = False
+                    else:
+                        for i, hsv_range in enumerate(self.hsv_ranges):
+                            for j in range(self.num_holes):
+                                hsv_frame = cv2.cvtColor(segmented_frame[j], cv2.COLOR_BGR2HSV)
+                                fg_frame = self.back_sub.apply(segmented_frame[j]) 
+                                masked_frame = cv2.inRange(segmented_frame[j], np.array(hsv_range[0]), np.array(hsv_range[1]))
+                                filtered_hsv_frame = cv2.bitwise_and(hsv_frame, hsv_frame, mask = masked_frame)
+                                filtered_rgb_frame = cv2.cvtColor(filtered_hsv_frame, cv2.COLOR_HSV2BGR)
+                                subtracted_rgb_frame = cv2.bitwise_and(filtered_rgb_frame, filtered_rgb_frame, mask = fg_frame)
+                                cv2.imshow(f"segmented_filtered_image_{j}_{self.list_colors[i]}", subtracted_rgb_frame)
+            
+    
+
+                        
+                
+                
 
 
                 # Keyboard inputs
                 if cv2.waitKey(1) & 0xFF == ord('q'):
                     break
                 elif cv2.waitKey(1) & 0xFF == ord('s'):
-                    hsv_comment = input("Enter the comment for this hsv range: ")
+                    color_name = input("Enter the color name for this hsv range: ")
                     hsv_range_data = [f'{datetime.datetime.utcnow()}', f'{self.min_h}', f'{self.min_s}', f'{self.min_v}',
-                                      f'{self.max_h}', f'{self.max_s}', f'{self.max_v}', f'{hsv_comment}']
+                                      f'{self.max_h}', f'{self.max_s}', f'{self.max_v}', f'{color_name}']
                     with open(self.hsv_range_file_name, 'a') as f:
                         writer = csv.writer(f)
                         writer.writerow(hsv_range_data)
@@ -271,6 +307,8 @@ if __name__=="__main__":
     parser.add_argument("input", help="Type of input source. Option: [camera, video]")
     parser.add_argument("--video_loc", help="Location of video only required when the input source is video.")
     parser.add_argument("--num_holes", help="Specifing number of holes needed to be segmented")
+    parser.add_argument("--num_colors", help="Specifing number of colors used for experiments")
+    parser.add_argument("--hsv_trackbar", help="Specifing if using trackbar for determining hsv ranges or using loaded hsv ranges from hsv_range.csv", default=1)
     args = parser.parse_args()
 
     color_tracker = ColorTracker(args)
