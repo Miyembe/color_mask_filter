@@ -121,9 +121,12 @@ class ColorTracker:
         self.justReady = False
 
         # HSV value loading
+        print(f"hsv_trackbar: {args.hsv_trackbar}")
         if args.hsv_trackbar == 1:
+            print("hsv_trackbar is being used")
             self.is_hsv_trackbar = True
         else:
+            print("hsv_trackbar is not being used")
             self.is_hsv_trackbar = False
             #self.hsv_ranges = [[0,0] for _ in range(self.num_colors)] 
             #self.name_colors = [blue, red, green, yellow] #etc
@@ -183,7 +186,7 @@ class ColorTracker:
                 print("Hole Segmentation is done")
         
 
-
+ 
 
     def run(self):
         while True:#
@@ -308,7 +311,7 @@ if __name__=="__main__":
     parser.add_argument("--video_loc", help="Location of video only required when the input source is video.")
     parser.add_argument("--num_holes", help="Specifing number of holes needed to be segmented")
     parser.add_argument("--num_colors", help="Specifing number of colors used for experiments")
-    parser.add_argument("--hsv_trackbar", help="Specifing if using trackbar for determining hsv ranges or using loaded hsv ranges from hsv_range.csv", default=1)
+    parser.add_argument("--hsv_trackbar", help="Specifing if using trackbar for determining hsv ranges or using loaded hsv ranges from hsv_range.csv", default=1, type=int)
     args = parser.parse_args()
 
     color_tracker = ColorTracker(args)
