@@ -55,7 +55,7 @@ class ColorTracker:
         #cv2.namedWindow(color_tracker_window, cv2.WINDOW_NORMAL)
         cv2.namedWindow(track_bar, cv2.WINDOW_NORMAL)
     
-
+        self.video_name = args.video_loc
         self.window_width = None
         self.window_height = 900
         
@@ -140,10 +140,18 @@ class ColorTracker:
                 self.hsv_ranges[i][0] = [hsv_range_row['min_h'].values[0], hsv_range_row['min_s'].values[0], hsv_range_row['min_v'].values[0]]
                 self.hsv_ranges[i][1] = [hsv_range_row['max_h'].values[0], hsv_range_row['max_s'].values[0], hsv_range_row['max_v'].values[0]]
             print(f"self.hsv_ranges: {self.hsv_ranges}")
-                
 
-            
-            
+        # Color Extraction by click
+        self.click_flag = False
+        self.extracted_hsv = []
+        self.extracted_hsv_name = "extracted_hsv.csv"
+        self.extracted_hsv_file_header = ['video_name', 'num_frame', 'colors', 'x', 'y', 'h', 's', 'v', 'comment']
+        if self.extracted_hsv_name not in os.listdir():
+            with open(self.extracted_hsv_name, 'w') as f:
+                writer = csv.writer(f)
+                writer.writerow(self.extracted_hsv_file_header)
+
+
         
     def saveRectangle(self, action, x, y, flags, *userdata):
         #print("Instance called")
@@ -184,9 +192,27 @@ class ColorTracker:
                 self.isHoleReady = True
                 self.justReady = True
                 print("Hole Segmentation is done")
-        
 
- 
+    def extractColor(self, action, x, y, flags, userdata):
+        hsv_frame = userdata[0]
+        width = userdata[1]
+        height = userdata[2]
+        if action == cv2.EVENT_RBUTTONDOWN:
+            # OpenCV window, x and y (row and column are swapped)
+            print(f"Color is extracted from pixel position x: {y}, and y: {x}")
+            color_name = input("Enter the name of the color you extracted: ")
+            comment = input("Enter a comment you want to add: ")
+            no_frame = int(self.capture.get(cv2.CAP_PROP_POS_FRAMES))
+            # Get hsv value for the surrounding pixels
+            for i in range(width):
+                for j in range(height):
+                    self.extracted_hsv = hsv_frame[y+i-int(width-1/2),x+j-int(height-1/2)]
+                    extracted_hsv_data = [f'{self.video_name}', f'{no_frame}', f'{color_name}', f'{y+i-int(width/2)}',
+                                    f'{x+j-int(height/2)}', f'{self.extracted_hsv[0]}', f'{self.extracted_hsv[1]}', f'{self.extracted_hsv[2]}', f'{comment}']
+                    with open(self.extracted_hsv_name, 'a') as f:
+                        writer = csv.writer(f)
+                        writer.writerow(extracted_hsv_data)
+            self.click_flag = 0
 
     def run(self):
         while True:#
@@ -212,8 +238,8 @@ class ColorTracker:
                 
                 
                 
-                frame_resized = resizeWithAspectRatio(frame, height=self.window_height)
-                cv2.imshow(color_tracker_window, frame_resized)
+                frame = resizeWithAspectRatio(frame, height=self.window_height)
+                cv2.imshow(color_tracker_window, frame)
                 if self.mouse_flag == 1:
                     self.chooseHoles(color_tracker_window, frame, num_holes = self.num_holes) # Choose holes with desired number with mouse drag.
                 elif self.isHoleReady:
@@ -239,6 +265,10 @@ class ColorTracker:
 
                 if self.is_hsv_trackbar:
                     hsv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+                    if self.click_flag == 1:
+                        cv2.setMouseCallback(color_tracker_window, self.extractColor, [hsv_frame, 3, 3])
+                    else:
+                        cv2.setMouseCallback(color_tracker_window, lambda x, y, flags, *userdata: None)
                     fg_frame = self.back_sub.apply(frame) 
                     fg_frame_viz = resizeWithAspectRatio(fg_frame, height=self.window_height)
                     min_values = np.array([self.min_h, self.min_s, self.min_v], dtype = "uint8")
@@ -267,18 +297,11 @@ class ColorTracker:
                             for j in range(self.num_holes):
                                 hsv_frame = cv2.cvtColor(segmented_frame[j], cv2.COLOR_BGR2HSV)
                                 fg_frame = self.back_sub.apply(segmented_frame[j]) 
-                                masked_frame = cv2.inRange(segmented_frame[j], np.array(hsv_range[0]), np.array(hsv_range[1]))
+                                masked_frame = cv2.inRange(hsv_frame, np.array(hsv_range[0], dtype="uint8"), np.array(hsv_range[1], dtype="uint8"))
                                 filtered_hsv_frame = cv2.bitwise_and(hsv_frame, hsv_frame, mask = masked_frame)
                                 filtered_rgb_frame = cv2.cvtColor(filtered_hsv_frame, cv2.COLOR_HSV2BGR)
                                 subtracted_rgb_frame = cv2.bitwise_and(filtered_rgb_frame, filtered_rgb_frame, mask = fg_frame)
                                 cv2.imshow(f"segmented_filtered_image_{j}_{self.list_colors[i]}", subtracted_rgb_frame)
-            
-    
-
-                        
-                
-                
-
 
                 # Keyboard inputs
                 if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -297,7 +320,13 @@ class ColorTracker:
                     else:
                         print("Mouse based segmentation is deactivated")
                         self.mouse_flag = 0
-
+                elif cv2.waitKey(1) & 0xFF == ord('c'): # Color Extraction by click
+                    if self.click_flag == False:
+                        print("Color Extraction by click is activated")
+                        self.click_flag = True
+                    else:
+                        print("Color Extraction by click is deactivated")
+                        self.click_flag = False
                 # elif cv2.waitKey(1) & 0xFF == ord('p'):
                 #     print(f"Hue: {self.h}, Saturation: {self.s}, Value: {self.v}")
 
