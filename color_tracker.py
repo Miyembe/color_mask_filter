@@ -115,10 +115,13 @@ class ColorTracker:
         if args.num_holes is not None:
             self.num_holes = int(args.num_holes)
             self.list_holes = [[0,0] for i in range(self.num_holes)]
+            self.list_holes_big = [[0,0] for i in range(self.num_holes)]
         else: self.num_holes = args.num_holes
         self.list_index = 0
         self.isHoleReady = False
         self.justReady = False
+
+    
 
         # HSV value loading
         print(f"hsv_trackbar: {args.hsv_trackbar}")
@@ -152,15 +155,17 @@ class ColorTracker:
                 writer.writerow(self.extracted_hsv_file_header)
 
 
-        
-    def saveRectangle(self, action, x, y, flags, *userdata):
+    def saveRectangle(self, action, x, y, flags, padding):
         #print("Instance called")
         #print("Hello")
+        # TODO - need to put exception when the padded coordinates is out of the window. 
         if action == cv2.EVENT_LBUTTONDOWN:
             print("Top Left coordinate is saved.")
-            self.list_holes[self.list_index][0] = [(x,y)]
+            self.list_holes[self.list_index][0] = [(x,y)]   
+            self.list_holes_big[self.list_index][0] = [(x-padding,y-padding)]
         elif action == cv2.EVENT_LBUTTONUP:
             self.list_holes[self.list_index][1] = [(x,y)]
+            self.list_holes_big[self.list_index][1] = [(x+padding,y+padding)]
             self.list_index += 1
             print(f"Top Left and Bottom Right Coordinates are now set !!!")
 
@@ -177,12 +182,12 @@ class ColorTracker:
             cv2.imshow(window, frame)
 
 
-    def chooseHoles(self, window, frame, num_holes = 0):
+    def chooseHoles(self, window, frame, num_holes = 0, padding = 50):
         # Need to generate empty list with the len of num_holes
         self.isHoleReady = False
         if self.mouse_flag == 1:
             if self.list_index < self.num_holes:
-                cv2.setMouseCallback(window, self.saveRectangle) 
+                cv2.setMouseCallback(window, self.saveRectangle, padding) 
                 #print(f"self.list_index: {self.list_index}")
                 #print(f"self.mouse_flag: {self.mouse_flag}")
             else:
@@ -213,6 +218,86 @@ class ColorTracker:
                         writer = csv.writer(f)
                         writer.writerow(extracted_hsv_data)
             self.click_flag = 0
+
+    def checkPixelHSVFrame(self, window, frame, hsv_range, padding = 50):
+        '''
+        Check if the pixels fit within the range in the frame.
+        '''
+        shape_frame = np.array(frame).shape # (row, column, channel)
+        list_outer_in_range = []
+        list_inner_in_range = []
+        
+
+        for i in range(shape_frame[0]):
+            for j in range(shape_frame[1]):
+                isInRange = True
+                for val, min_range, max_range in zip(frame[i,j], hsv_range[0], hsv_range[1]):
+                    if val < min_range or val > max_range:
+                        isInRange = False
+                        break
+                    else: continue
+                if isInRange == True:
+                    list_outer_in_range.append([i, j])
+                    #print("Colored Pixels in Outer Box")
+                    if (i >= padding and i < shape_frame[0] - padding) and (j >= padding and j < shape_frame[1]):
+                        list_inner_in_range.append([i, j])
+                        #print("Colored Pixels in Inner Box")
+        
+        return list_outer_in_range, list_inner_in_range
+    def manhattan_distance(self, p1, p2):
+        distance = 0
+        for x1, x2 in zip(p1, p2):
+            abs_difference = abs(x2-x1)
+            distance += abs_difference
+        return distance
+
+    def common_elements(self, list1, list2):
+        return [element for element in list1 if element in list2]
+
+    def groupingPixels(self, list_pixels, min_group_dist):
+
+        if len(list_pixels) != 0:
+            list_group = []
+            #print(f"list_pixels: {list_pixels}")
+            list_group.append([list_pixels[0]])
+            # Sorting the pixels into a group
+            for i, px in enumerate(list_pixels):
+                found_group = False
+                for j, lg in enumerate(list_group):
+                    for mem in lg:
+                        if self.manhattan_distance(px, mem) <= min_group_dist:
+                            list_group[j].append(px)
+                            found_group = True
+                            break
+                    if found_group == True:
+                        break
+                if found_group == False:
+                    list_group.append([list_pixels[i]])
+            
+            # Merging groups
+            list_sim_idx = []
+            for i, gp1 in enumerate(list_group):
+                for j, gp2 in enumerate(list_group):
+                    if i != j:
+                        list_inter = self.common_elements(gp1, gp2)     
+                        if list_inter is not list():
+                            list_sim_idx.append([i,j])
+            
+            list_sim_idx = np.unique(np.array(list_sim_idx).reshape(1,-1).squeeze())
+            list_sep_idx = np.arange(0, len(list_group))
+            for i in list_sim_idx:
+                list_sep_idx = np.delete(list_sep_idx, np.where(list_sep_idx == i))
+
+            #print(f"list_sim_idx: {list_sim_idx}, list_sep_idx: {list_sep_idx}")
+            if len(list_sim_idx) > 1: 
+                list_group_final = [np.concatenate([list_group[i] for i in list_sim_idx]).tolist()]
+            else: list_group_final = []
+
+            for i in list_sep_idx:
+                list_group_final.append(list_group[i])
+        
+            return list_group_final
+        else: return list()
 
     def run(self):
         while True:#
@@ -245,10 +330,11 @@ class ColorTracker:
                 elif self.isHoleReady:
                     cv2.setMouseCallback(color_tracker_window, lambda x, y, flags, *userdata: None) # Stop choosing holes and visualise all the chosen rectangles
                     self.drawAllRectangle(color_tracker_window, frame, self.list_holes)
+                    self.drawAllRectangle(color_tracker_window, frame, self.list_holes_big)                    
                     segmented_frame = [[] for _ in range(self.num_holes)]
                     segmented_sub_frame = [[] for _ in range(self.num_holes)]
                     for i in range(self.num_holes):
-                        segmented_frame[i] = frame[self.list_holes[i][0][0][1]:self.list_holes[i][1][0][1], self.list_holes[i][0][0][0]:self.list_holes[i][1][0][0]]
+                        segmented_frame[i] = frame[self.list_holes_big[i][0][0][1]:self.list_holes_big[i][1][0][1], self.list_holes_big[i][0][0][0]:self.list_holes_big[i][1][0][0]]
                         cv2.imshow(f"segmented_image_{i}", segmented_frame[i])
                 #cv2.putText(frame, fps,(7, 70), self.font, 3, (100, 255, 0), 3, cv2.LINE_AA)
 
@@ -296,12 +382,18 @@ class ColorTracker:
                         for i, hsv_range in enumerate(self.hsv_ranges):
                             for j in range(self.num_holes):
                                 hsv_frame = cv2.cvtColor(segmented_frame[j], cv2.COLOR_BGR2HSV)
-                                fg_frame = self.back_sub.apply(segmented_frame[j]) 
-                                masked_frame = cv2.inRange(hsv_frame, np.array(hsv_range[0], dtype="uint8"), np.array(hsv_range[1], dtype="uint8"))
-                                filtered_hsv_frame = cv2.bitwise_and(hsv_frame, hsv_frame, mask = masked_frame)
+                                fg_frame = self.back_sub.apply(segmented_frame[j])
+                                subtracted_hsv_frame = cv2.bitwise_and(hsv_frame, hsv_frame, mask = fg_frame) 
+                                masked_frame = cv2.inRange(subtracted_hsv_frame, np.array(hsv_range[0], dtype="uint8"), np.array(hsv_range[1], dtype="uint8"))
+                                filtered_hsv_frame = cv2.bitwise_and(subtracted_hsv_frame, subtracted_hsv_frame, mask = masked_frame)
                                 filtered_rgb_frame = cv2.cvtColor(filtered_hsv_frame, cv2.COLOR_HSV2BGR)
-                                subtracted_rgb_frame = cv2.bitwise_and(filtered_rgb_frame, filtered_rgb_frame, mask = fg_frame)
-                                cv2.imshow(f"segmented_filtered_image_{j}_{self.list_colors[i]}", subtracted_rgb_frame)
+                                #subtracted_rgb_frame = cv2.bitwise_and(filtered_rgb_frame, filtered_rgb_frame, mask = fg_frame)
+                                cv2.imshow(f"segmented_filtered_image_{j}_{self.list_colors[i]}", filtered_rgb_frame)
+                                list_outer_in_range, list_inner_in_range = self.checkPixelHSVFrame(f"segmented_filtered_image_{j}_{self.list_colors[i]}", filtered_hsv_frame, hsv_range)
+                                #print(f"list_outer_in_range: {list_outer_in_range}, list_inner_in_range: {list_inner_in_range}") 
+                                list_outer_group = self.groupingPixels(list_outer_in_range, 5)
+                                print(f"list_outer_group: {list_outer_group}, num_group: {len(list_outer_group)}")
+                                #print(f"Image_{j}, Outer box pixels: {list_outer_in_range}, Inner box pixels; {list_inner_in_range}")
 
                 # Keyboard inputs
                 if cv2.waitKey(1) & 0xFF == ord('q'):
