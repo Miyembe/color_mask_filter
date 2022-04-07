@@ -8,6 +8,7 @@ import os
 import _thread
 import pandas as pd
 from functools import partial
+from collections import deque
 
 color_tracker_window = "Video Capture"
 filtered_window = "Filtered Image"
@@ -49,6 +50,10 @@ high_H = 180
 high_S = max_value
 high_V = max_value
 ##########
+class AntsHoleDetermination:
+    def __init__(self, num_holes):
+        self.num_obj_inner = [[] for _ in range(num_holes)]
+        self.num_obj_outer = [[] for _ in range(num_holes)]
 
 class ColorTracker:
     def __init__(self, args):
@@ -120,6 +125,9 @@ class ColorTracker:
         self.list_index = 0
         self.isHoleReady = False
         self.justReady = False
+
+        # Determination whether ants went into hole related
+        self.num_object_color = deque(maxlen=2) # storing things 
 
     
 
@@ -226,7 +234,6 @@ class ColorTracker:
         shape_frame = np.array(frame).shape # (row, column, channel)
         list_outer_in_range = []
         list_inner_in_range = []
-        
 
         for i in range(shape_frame[0]):
             for j in range(shape_frame[1]):
@@ -296,8 +303,12 @@ class ColorTracker:
             for i in list_sep_idx:
                 list_group_final.append(list_group[i])
         
-            return list_group_final
+            return list_group_final, len(list_group_final)
         else: return list()
+
+        def determineHoleIn(self, )
+            # The best thing I can is tracking the object in the ROI. What is the method to track the object using the pixel data ?
+            # How can I give ID to the moving object?
 
     def run(self):
         while True:#
@@ -379,6 +390,12 @@ class ColorTracker:
                     if self.justReady:
                         self.justReady = False
                     else:
+                        # I need to get the num_obj of (((outer, inner) * num_colors) * num_holes) for one frame - should I use nested dictionary?
+                        # Like {hole_ID {blue: ..., pink: ..., etc}} I think it is really goo method. Every loop, I can make a nested dict, 
+                        # Dictionary intialisation to store num_objects for each color in each hole.
+                        dict_num_objects = dict.fromkeys([f'Box_ID_{i}' for i in range(self.num_holes)])
+                        from key in dict_num_objects:
+                            dict_num_objects[key] = dict.fromkeys(self.num_colors)
                         for i, hsv_range in enumerate(self.hsv_ranges):
                             for j in range(self.num_holes):
                                 hsv_frame = cv2.cvtColor(segmented_frame[j], cv2.COLOR_BGR2HSV)
@@ -391,7 +408,7 @@ class ColorTracker:
                                 cv2.imshow(f"segmented_filtered_image_{j}_{self.list_colors[i]}", filtered_rgb_frame)
                                 list_outer_in_range, list_inner_in_range = self.checkPixelHSVFrame(f"segmented_filtered_image_{j}_{self.list_colors[i]}", filtered_hsv_frame, hsv_range)
                                 #print(f"list_outer_in_range: {list_outer_in_range}, list_inner_in_range: {list_inner_in_range}") 
-                                list_outer_group = self.groupingPixels(list_outer_in_range, 5)
+                                list_outer_group, num_outer_group = self.groupingPixels(list_outer_in_range, 5)
                                 print(f"list_outer_group: {list_outer_group}, num_group: {len(list_outer_group)}")
                                 #print(f"Image_{j}, Outer box pixels: {list_outer_in_range}, Inner box pixels; {list_inner_in_range}")
 
