@@ -162,6 +162,16 @@ class ColorTracker:
                 writer = csv.writer(f)
                 writer.writerow(self.extracted_hsv_file_header)
 
+        # Determine whether ants go into the holes
+        self.dict_count = dict.fromkeys([f'Box_ID_{i}' for i in range(self.num_holes)])
+        for key in self.dict_count:
+            self.dict_count[key] = dict.fromkeys(self.list_colors)
+            for color in self.dict_count[key]:
+                self.dict_count[key][color] = 0
+        self.cur_dict_num_objects = None
+        self.prev_dict_num_objects = None
+
+
 
     def saveRectangle(self, action, x, y, flags, padding):
         #print("Instance called")
@@ -227,7 +237,7 @@ class ColorTracker:
                         writer.writerow(extracted_hsv_data)
             self.click_flag = 0
 
-    def checkPixelHSVFrame(self, window, frame, hsv_range, padding = 50):
+    def checkPixelHSVFrame(self, window, frame, hsv_range, min_num = 1, padding = 50):
         '''
         Check if the pixels fit within the range in the frame.
         '''
@@ -249,7 +259,16 @@ class ColorTracker:
                     if (i >= padding and i < shape_frame[0] - padding) and (j >= padding and j < shape_frame[1]):
                         list_inner_in_range.append([i, j])
                         #print("Colored Pixels in Inner Box")
-        
+        if len(list_inner_in_range) < min_num:
+            for i in list_inner_in_range:
+                if i is not None:
+                    list_outer_in_range.remove(i)
+            list_inner_in_range = []
+        if len(list_outer_in_range) < min_num:
+            list_outer_in_range = []
+
+
+
         return list_outer_in_range, list_inner_in_range
     def manhattan_distance(self, p1, p2):
         distance = 0
@@ -304,12 +323,17 @@ class ColorTracker:
                 list_group_final.append(list_group[i])
         
             return list_group_final, len(list_group_final)
-        else: return list()
+        
+        else: return list(), 0
 
-        def determineHoleIn(self, )
-            # The best thing I can is tracking the object in the ROI. What is the method to track the object using the pixel data ?
-            # How can I give ID to the moving object?
-
+    def compareDictNumObj(self, cur_dict, prev_dict):
+        # cur_dict and prev_dict -- second order nested dictionaries.
+        for box in cur_dict:
+            for color in cur_dict[box]:
+                diff_num_obj = np.subtract(np.array(prev_dict[box][color]),np.array(cur_dict[box][color])) 
+                if diff_num_obj[0] == 1 and diff_num_obj[1] == 1:
+                    self.dict_count[box][color] += 1
+                    print(f"Frame: {self.capture.get(cv2.CAP_PROP_POS_FRAMES)}, Box: {box}, Color: {color}, ant just went into hole!")
     def run(self):
         while True:#
         # Image Collection & Processing
@@ -393,9 +417,12 @@ class ColorTracker:
                         # I need to get the num_obj of (((outer, inner) * num_colors) * num_holes) for one frame - should I use nested dictionary?
                         # Like {hole_ID {blue: ..., pink: ..., etc}} I think it is really goo method. Every loop, I can make a nested dict, 
                         # Dictionary intialisation to store num_objects for each color in each hole.
+                        # TODO Put the num_objects in this dict over the loop!!!
+                        # TODO and complete determine function!!!
+                        self.prev_dict_num_objects = self.cur_dict_num_objects
                         dict_num_objects = dict.fromkeys([f'Box_ID_{i}' for i in range(self.num_holes)])
-                        from key in dict_num_objects:
-                            dict_num_objects[key] = dict.fromkeys(self.num_colors)
+                        for key in dict_num_objects:
+                            dict_num_objects[key] = dict.fromkeys(self.list_colors)
                         for i, hsv_range in enumerate(self.hsv_ranges):
                             for j in range(self.num_holes):
                                 hsv_frame = cv2.cvtColor(segmented_frame[j], cv2.COLOR_BGR2HSV)
@@ -406,11 +433,21 @@ class ColorTracker:
                                 filtered_rgb_frame = cv2.cvtColor(filtered_hsv_frame, cv2.COLOR_HSV2BGR)
                                 #subtracted_rgb_frame = cv2.bitwise_and(filtered_rgb_frame, filtered_rgb_frame, mask = fg_frame)
                                 cv2.imshow(f"segmented_filtered_image_{j}_{self.list_colors[i]}", filtered_rgb_frame)
-                                list_outer_in_range, list_inner_in_range = self.checkPixelHSVFrame(f"segmented_filtered_image_{j}_{self.list_colors[i]}", filtered_hsv_frame, hsv_range)
+                                list_outer_in_range, list_inner_in_range = self.checkPixelHSVFrame(f"segmented_filtered_image_{j}_{self.list_colors[i]}", filtered_hsv_frame, hsv_range, min_num = 4)
+
                                 #print(f"list_outer_in_range: {list_outer_in_range}, list_inner_in_range: {list_inner_in_range}") 
-                                list_outer_group, num_outer_group = self.groupingPixels(list_outer_in_range, 5)
-                                print(f"list_outer_group: {list_outer_group}, num_group: {len(list_outer_group)}")
+                                _, num_outer_group = self.groupingPixels(list_outer_in_range, 5)
+                                _, num_inner_group = self.groupingPixels(list_inner_in_range, 5)
+                                dict_num_objects[f'Box_ID_{j}'][self.list_colors[i]] = [num_outer_group, num_inner_group]
+                                #print(f"list_outer_range: {list_outer_in_range}, list_inner_range: {list_inner_in_range}")
+                                #print(f"dict_num_objects: {dict_num_objects}")
+                                #print(f"list_outer_group: {list_outer_group}, num_group: {len(list_outer_group)}")
                                 #print(f"Image_{j}, Outer box pixels: {list_outer_in_range}, Inner box pixels; {list_inner_in_range}")
+                        self.cur_dict_num_objects = dict_num_objects
+                        if self.cur_dict_num_objects is not None and self.prev_dict_num_objects is not None:
+                            self.compareDictNumObj(self.cur_dict_num_objects, self.prev_dict_num_objects)
+
+
 
                 # Keyboard inputs
                 if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -439,6 +476,7 @@ class ColorTracker:
                 # elif cv2.waitKey(1) & 0xFF == ord('p'):
                 #     print(f"Hue: {self.h}, Saturation: {self.s}, Value: {self.v}")
 
+        print(f"dict_count: {self.dict_count}")
         self.capture.release()
         cv2.destroyAllWindows()
 
