@@ -150,7 +150,21 @@ class ColorTracker:
                 hsv_range_row = hsv_range_csv.loc[hsv_range_csv['colors']==color]
                 self.hsv_ranges[i][0] = [hsv_range_row['min_h'].values[0], hsv_range_row['min_s'].values[0], hsv_range_row['min_v'].values[0]]
                 self.hsv_ranges[i][1] = [hsv_range_row['max_h'].values[0], hsv_range_row['max_s'].values[0], hsv_range_row['max_v'].values[0]]
-            print(f"self.hsv_ranges: {self.hsv_ranges}")
+
+            # Save dict_count and dict_count_log
+            self.dict_count_file_name = f"{self.video_name}_color_count.csv"
+            self.dict_count_log_file_name = f"{self.video_name}_color_count_log.csv"
+            self.dict_count_file_header = ['box_id'] + self.list_colors
+            self.dict_count_log_file_header = ['frame_no', 'box_id'] + self.list_colors
+            
+            if self.dict_count_file_name not in os.listdir():
+                with open(self.dict_count_file_name, 'w') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(self.dict_count_file_header)
+            if self.dict_count_log_file_name not in os.listdir():
+                with open(self.dict_count_log_file_name, 'w') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(self.dict_count_log_file_header)        
 
         # Color Extraction by click
         self.click_flag = False
@@ -170,6 +184,8 @@ class ColorTracker:
                 self.dict_count[key][color] = 0
         self.cur_dict_num_objects = None
         self.prev_dict_num_objects = None
+
+        
 
 
 
@@ -329,11 +345,17 @@ class ColorTracker:
     def compareDictNumObj(self, cur_dict, prev_dict):
         # cur_dict and prev_dict -- second order nested dictionaries.
         for box in cur_dict:
-            for color in cur_dict[box]:
+            for i, color in enumerate(cur_dict[box]):
                 diff_num_obj = np.subtract(np.array(prev_dict[box][color]),np.array(cur_dict[box][color])) 
                 if diff_num_obj[0] == 1 and diff_num_obj[1] == 1:
                     self.dict_count[box][color] += 1
                     print(f"Frame: {self.capture.get(cv2.CAP_PROP_POS_FRAMES)}, Box: {box}, Color: {color}, ant just went into hole!")
+                    with open(self.dict_count_log_file_name, 'a') as f:
+                        writer = csv.writer(f)
+                        list_mask_color_count = [0 for _ in range(self.num_colors)]
+                        list_mask_color_count[i] = 1
+                        color_count_log_data = [int(self.capture.get(cv2.CAP_PROP_POS_FRAMES)), box] + list_mask_color_count
+                        writer.writerow(color_count_log_data)
     def run(self):
         while True:#
         # Image Collection & Processing
@@ -475,8 +497,17 @@ class ColorTracker:
                         self.click_flag = False
                 # elif cv2.waitKey(1) & 0xFF == ord('p'):
                 #     print(f"Hue: {self.h}, Saturation: {self.s}, Value: {self.v}")
-
-        print(f"dict_count: {self.dict_count}")
+            elif ret is False and int(self.capture.get(cv2.CAP_PROP_POS_FRAMES)) >= int(self.capture.get(cv2.CAP_PROP_FRAME_COUNT)):
+                print(f"The video is ended ({int(self.capture.get(cv2.CAP_PROP_POS_FRAMES))} / {int(self.capture.get(cv2.CAP_PROP_FRAME_COUNT))})")
+                break
+        #print(f"dict_count: {self.dict_count}")
+        with open(self.dict_count_file_name, 'a') as f:
+            writer = csv.writer(f)
+            for i, box in enumerate(self.dict_count):
+                color_count_data = [i]
+                for color in self.dict_count[box]:
+                    color_count_data.append(self.dict_count[box][color])        
+                writer.writerow(color_count_data)
         self.capture.release()
         cv2.destroyAllWindows()
 
