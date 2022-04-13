@@ -31,7 +31,7 @@ def resizeWithAspectRatio(image, width=None, height=None, inter=cv2.INTER_AREA):
     else:
         r = width/float(w)
         dim = (width, int(h*r))
-
+    
     return cv2.resize(image, dim, interpolation=inter)
 
 def getFrame(frame_no, video):
@@ -62,7 +62,7 @@ class ColorTracker:
     
         self.video_name = args.video_loc
         self.window_width = None
-        self.window_height = 900
+        self.window_height = 900 
         
         cv2.createTrackbar('min_h', track_bar, 0, high_H, doNothing)
         cv2.createTrackbar('min_s', track_bar, 0, high_S, doNothing)
@@ -126,16 +126,29 @@ class ColorTracker:
         self.isHoleReady = False
         self.justReady = False
 
+        # rescaling
+        self.rescaling_factor = [2160/506, 3840/900]
+
         # Determination whether ants went into hole related
         self.num_object_color = deque(maxlen=2) # storing things 
 
     
 
         # HSV value loading
+        self.hsv_trackbar = args.hsv_trackbar
         print(f"hsv_trackbar: {args.hsv_trackbar}")
         if args.hsv_trackbar == 1:
             print("hsv_trackbar is being used")
             self.is_hsv_trackbar = True
+            # Color Extraction by click
+            self.click_flag = False
+            self.extracted_hsv = []
+            self.extracted_hsv_name = "extracted_hsv.csv"
+            self.extracted_hsv_file_header = ['video_name', 'num_frame', 'colors', 'x', 'y', 'h', 's', 'v', 'comment']
+            if self.extracted_hsv_name not in os.listdir():
+                with open(self.extracted_hsv_name, 'w') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(self.extracted_hsv_file_header)
         else:
             print("hsv_trackbar is not being used")
             self.is_hsv_trackbar = False
@@ -164,30 +177,23 @@ class ColorTracker:
             if self.dict_count_log_file_name not in os.listdir():
                 with open(self.dict_count_log_file_name, 'w') as f:
                     writer = csv.writer(f)
-                    writer.writerow(self.dict_count_log_file_header)        
-
-        # Color Extraction by click
-        self.click_flag = False
-        self.extracted_hsv = []
-        self.extracted_hsv_name = "extracted_hsv.csv"
-        self.extracted_hsv_file_header = ['video_name', 'num_frame', 'colors', 'x', 'y', 'h', 's', 'v', 'comment']
-        if self.extracted_hsv_name not in os.listdir():
-            with open(self.extracted_hsv_name, 'w') as f:
-                writer = csv.writer(f)
-                writer.writerow(self.extracted_hsv_file_header)
-
-        # Determine whether ants go into the holes
-        self.dict_count = dict.fromkeys([f'Box_ID_{i}' for i in range(self.num_holes)])
-        for key in self.dict_count:
-            self.dict_count[key] = dict.fromkeys(self.list_colors)
-            for color in self.dict_count[key]:
-                self.dict_count[key][color] = 0
-        self.cur_dict_num_objects = None
-        self.prev_dict_num_objects = None
-
+                    writer.writerow(self.dict_count_log_file_header)
+            # Determine whether ants go into the holes
         
+            self.dict_count = dict.fromkeys([f'Box_ID_{i}' for i in range(self.num_holes)])
+            for key in self.dict_count:
+                self.dict_count[key] = dict.fromkeys(self.list_colors)
+                for color in self.dict_count[key]:
+                    self.dict_count[key][color] = 0
+            self.cur_dict_num_objects = None
+            self.prev_dict_num_objects = None
 
+            if int(args.load_box) == 1:
+                self.list_holes, self.list_holes_big = self.loadBoxLoc('GH020284.MP4') # Non-rescaling version
+                #self.list_holes, self.list_holes_big = self.loadBoxLoc('GH020284.MP4', self.rescaling_factor)
+                print(f"self.list_holes: {type(self.list_holes)}, self.list_holes_big: {self.list_holes_big}")
 
+            
 
     def saveRectangle(self, action, x, y, flags, padding):
         #print("Instance called")
@@ -212,10 +218,44 @@ class ColorTracker:
 
     def drawAllRectangle(self, window, frame, coordinates):
         for i, coordinate in enumerate(coordinates):
-            cv2.rectangle(frame, coordinate[0][0], coordinate[1][0], (0, 255, 0), 2, 8)
+            cv2.rectangle(frame, tuple(coordinate[0][0]), tuple(coordinate[1][0]), (0, 255, 0), 2, 8)
             cv2.imshow(window, frame)
 
-
+    def saveBoxLoc(self, list_holes, list_holes_big):
+        list_holes_npy = np.array(list_holes)
+        list_holes_big_npy = np.array(list_holes_big)
+        
+        with open(f"{self.video_name}_box_loc.npy", 'wb') as f:
+            np.save(f, list_holes_npy)
+            np.save(f, list_holes_big_npy)
+        
+        print(f"Box locations for {self.video_name} is successfully saved.")
+    
+    def loadBoxLoc(self, video_name, rescaling_factor = None):
+        # resize_factor = (row, height)
+        with open(f"{video_name}_box_loc.npy", 'rb') as f:
+            list_holes = np.load(f, allow_pickle = True)
+            list_holes_big = np.load(f, allow_pickle = True)
+        
+        print(f"Smaller Box: {list_holes}, Larger Box: {list_holes_big}")
+        print(f"rescaling_factor: {rescaling_factor}")
+        if rescaling_factor is not None:
+            for hole in list_holes:
+                for corner in hole:
+                    #print(f"corner: {corner}, rescaling_factor: {rescaling_factor}")
+                    corner[0][0] = int(corner[0][0]*rescaling_factor[0])
+                    corner[0][1] = int(corner[0][1]*rescaling_factor[1])
+            for hole in list_holes_big:
+                for corner in hole:
+                    corner[0][0] = int(corner[0][0]*rescaling_factor[0])
+                    corner[0][1] = int(corner[0][1]*rescaling_factor[1])
+                    
+        self.isHoleReady = True
+        #print(f"Box Locations are successfully loaded from {video_name}")
+        #print(f"Smaller Box: {list_holes}, Larger Box: {list_holes_big}")
+        #print(f"Box Shape: {np.array(list_holes).shape}")
+        return list_holes.tolist(), list_holes_big.tolist()
+    
     def chooseHoles(self, window, frame, num_holes = 0, padding = 50):
         # Need to generate empty list with the len of num_holes
         self.isHoleReady = False
@@ -357,6 +397,7 @@ class ColorTracker:
                         color_count_log_data = [int(self.capture.get(cv2.CAP_PROP_POS_FRAMES)), box] + list_mask_color_count
                         writer.writerow(color_count_log_data)
     def run(self):
+        video_start_time = time.time()
         while True:#
         # Image Collection & Processing
             ret, frame = self.capture.read()
@@ -495,19 +536,27 @@ class ColorTracker:
                     else:
                         print("Color Extraction by click is deactivated")
                         self.click_flag = False
+                elif cv2.waitKey(1) & 0xFF == ord('b'):
+                    self.saveBoxLoc(self.list_holes, self.list_holes_big)
+                elif cv2.waitKey(1) & 0xFF == ord('l'):
+                    self.list_holes, self.list_holes_big = self.loadBoxLoc('GH020284.MP4') # non-rescaling version
+                    #self.list_holes, self.list_holes_big = self.loadBoxLoc('GH020284.MP4', self.rescaling_factor)
+                
                 # elif cv2.waitKey(1) & 0xFF == ord('p'):
                 #     print(f"Hue: {self.h}, Saturation: {self.s}, Value: {self.v}")
             elif ret is False and int(self.capture.get(cv2.CAP_PROP_POS_FRAMES)) >= int(self.capture.get(cv2.CAP_PROP_FRAME_COUNT)):
                 print(f"The video is ended ({int(self.capture.get(cv2.CAP_PROP_POS_FRAMES))} / {int(self.capture.get(cv2.CAP_PROP_FRAME_COUNT))})")
+                print(f"Time taken: {time.time() - video_start_time:2f}")
                 break
         #print(f"dict_count: {self.dict_count}")
-        with open(self.dict_count_file_name, 'a') as f:
-            writer = csv.writer(f)
-            for i, box in enumerate(self.dict_count):
-                color_count_data = [i]
-                for color in self.dict_count[box]:
-                    color_count_data.append(self.dict_count[box][color])        
-                writer.writerow(color_count_data)
+        if self.hsv_trackbar == 0:
+            with open(self.dict_count_file_name, 'a') as f:
+                writer = csv.writer(f)
+                for i, box in enumerate(self.dict_count):
+                    color_count_data = [i]
+                    for color in self.dict_count[box]:
+                        color_count_data.append(self.dict_count[box][color])        
+                    writer.writerow(color_count_data)
         self.capture.release()
         cv2.destroyAllWindows()
 
@@ -519,6 +568,7 @@ if __name__=="__main__":
     parser.add_argument("--num_holes", help="Specifing number of holes needed to be segmented")
     parser.add_argument("--num_colors", help="Specifing number of colors used for experiments")
     parser.add_argument("--hsv_trackbar", help="Specifing if using trackbar for determining hsv ranges or using loaded hsv ranges from hsv_range.csv", default=1, type=int)
+    parser.add_argument("--load_box", help="Load Boxes from saved npy file")
     args = parser.parse_args()
 
     color_tracker = ColorTracker(args)

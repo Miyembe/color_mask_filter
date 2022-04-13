@@ -1,2 +1,4 @@
 time,min_h,min_s,min_v,max_h,max_s,max_v,colors
 0,90,120,90,100,255,255,blue
+,68,85,90,90,255,255,green
+,150,100,120,180,255,255,pink
